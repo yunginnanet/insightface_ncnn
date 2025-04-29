@@ -15,32 +15,65 @@
 #ifndef NCNN_NET_H
 #define NCNN_NET_H
 
-#include <stdio.h>
-#include <vector>
 #include "blob.h"
 #include "layer.h"
 #include "mat.h"
+#include "option.h"
 #include "platform.h"
+
+#if NCNN_PLATFORM_API
+#if __ANDROID_API__ >= 9
+#include <android/asset_manager.h>
+#endif // __ANDROID_API__ >= 9
+#endif // NCNN_PLATFORM_API
 
 namespace ncnn {
 
+#if NCNN_VULKAN
+class VkCompute;
+#endif // NCNN_VULKAN
+class DataReader;
 class Extractor;
-class Net
+class NetPrivate;
+class NCNN_EXPORT Net
 {
 public:
     // empty init
     Net();
     // clear and destroy
-    ~Net();
+    virtual ~Net();
+
+public:
+    // option can be changed before loading
+    Option opt;
+
+#if NCNN_VULKAN
+    // set gpu device by index
+    void set_vulkan_device(int device_index);
+
+    // set gpu device by device handle, no owner transfer
+    void set_vulkan_device(const VulkanDevice* vkdev);
+
+    const VulkanDevice* vulkan_device() const;
+#endif // NCNN_VULKAN
 
 #if NCNN_STRING
-    // register custom layer by layer type name
+    // register custom layer or overwrite built-in layer by layer type name
     // return 0 if success
-    int register_custom_layer(const char* type, layer_creator_func creator);
+    int register_custom_layer(const char* type, layer_creator_func creator, layer_destroyer_func destroyer = 0, void* userdata = 0);
+    virtual int custom_layer_to_index(const char* type);
 #endif // NCNN_STRING
-    // register custom layer by layer type
+    // register custom layer or overwrite built-in layer by layer type
     // return 0 if success
-    int register_custom_layer(int index, layer_creator_func creator);
+    int register_custom_layer(int index, layer_creator_func creator, layer_destroyer_func destroyer = 0, void* userdata = 0);
+
+#if NCNN_STRING
+    int load_param(const DataReader& dr);
+#endif // NCNN_STRING
+
+    int load_param_bin(const DataReader& dr);
+
+    int load_model(const DataReader& dr);
 
 #if NCNN_STDIO
 #if NCNN_STRING
@@ -48,6 +81,7 @@ public:
     // return 0 if success
     int load_param(FILE* fp);
     int load_param(const char* protopath);
+    int load_param_mem(const char* mem);
 #endif // NCNN_STRING
     // load network structure from binary param file
     // return 0 if success
@@ -72,42 +106,103 @@ public:
     // return bytes consumed
     int load_model(const unsigned char* mem);
 
+#if NCNN_PLATFORM_API
+#if __ANDROID_API__ >= 9
+#if NCNN_STRING
+    // convenient load network structure from android asset plain param file
+    int load_param(AAsset* asset);
+    int load_param(AAssetManager* mgr, const char* assetpath);
+#endif // NCNN_STRING
+    // convenient load network structure from android asset binary param file
+    int load_param_bin(AAsset* asset);
+    int load_param_bin(AAssetManager* mgr, const char* assetpath);
+
+    // convenient load network weight data from android asset model file
+    int load_model(AAsset* asset);
+    int load_model(AAssetManager* mgr, const char* assetpath);
+#endif // __ANDROID_API__ >= 9
+#endif // NCNN_PLATFORM_API
+
     // unload network structure and weight data
     void clear();
 
     // construct an Extractor from network
     Extractor create_extractor() const;
 
+    // get input/output indexes/names
+    const std::vector<int>& input_indexes() const;
+    const std::vector<int>& output_indexes() const;
+#if NCNN_STRING
+    const std::vector<const char*>& input_names() const;
+    const std::vector<const char*>& output_names() const;
+#endif
+
+    const std::vector<Blob>& blobs() const;
+    const std::vector<Layer*>& layers() const;
+
+    std::vector<Blob>& mutable_blobs();
+    std::vector<Layer*>& mutable_layers();
+
 protected:
     friend class Extractor;
 #if NCNN_STRING
     int find_blob_index_by_name(const char* name) const;
     int find_layer_index_by_name(const char* name) const;
-    int custom_layer_to_index(const char* type);
-    Layer* create_custom_layer(const char* type);
+    virtual Layer* create_custom_layer(const char* type);
+    virtual Layer* create_overwrite_builtin_layer(const char* type);
 #endif // NCNN_STRING
-    Layer* create_custom_layer(int index);
-    int forward_layer(int layer_index, std::vector<Mat>& blob_mats, bool lightmode) const;
+    virtual Layer* create_custom_layer(int index);
+    virtual Layer* create_overwrite_builtin_layer(int typeindex);
 
-protected:
-    std::vector<Blob> blobs;
-    std::vector<Layer*> layers;
+private:
+    Net(const Net&);
+    Net& operator=(const Net&);
 
-    std::vector<layer_registry_entry> custom_layer_registry;
+private:
+    NetPrivate* const d;
 };
 
-class Extractor
+class ExtractorPrivate;
+class NCNN_EXPORT Extractor
 {
 public:
+    virtual ~Extractor();
+
+    // copy
+    Extractor(const Extractor&);
+
+    // assign
+    Extractor& operator=(const Extractor&);
+
+    // clear blob mats and alloctors
+    void clear();
+
     // enable light mode
     // intermediate blob will be recycled when enabled
     // enabled by default
     void set_light_mode(bool enable);
 
-    // set thread count for this extractor
-    // this will overwrite the global setting
-    // default count is system depended
+    // deprecated, no-op
+    // instead, set net.opt.num_threads before net.load_param()
     void set_num_threads(int num_threads);
+
+    // set blob memory allocator
+    void set_blob_allocator(Allocator* allocator);
+
+    // set workspace memory allocator
+    void set_workspace_allocator(Allocator* allocator);
+
+#if NCNN_VULKAN
+    // deprecated, no-op
+    // instead, set net.opt.use_vulkan_compute before net.load_param()
+    void set_vulkan_compute(bool enable);
+
+    void set_blob_vkallocator(VkAllocator* allocator);
+
+    void set_workspace_vkallocator(VkAllocator* allocator);
+
+    void set_staging_vkallocator(VkAllocator* allocator);
+#endif // NCNN_VULKAN
 
 #if NCNN_STRING
     // set input by blob name
@@ -116,7 +211,9 @@ public:
 
     // get result by blob name
     // return 0 if success
-    int extract(const char* blob_name, Mat& feat);
+    // type = 0, default
+    // type = 1, do not convert fp16/bf16 or / and packing
+    int extract(const char* blob_name, Mat& feat, int type = 0);
 #endif // NCNN_STRING
 
     // set input by blob index
@@ -125,17 +222,52 @@ public:
 
     // get result by blob index
     // return 0 if success
-    int extract(int blob_index, Mat& feat);
+    // type = 0, default
+    // type = 1, do not convert fp16/bf16 or / and packing
+    int extract(int blob_index, Mat& feat, int type = 0);
+
+#if NCNN_VULKAN
+#if NCNN_STRING
+    // set input by blob name
+    // return 0 if success
+    int input(const char* blob_name, const VkMat& in);
+
+    // get result by blob name
+    // return 0 if success
+    int extract(const char* blob_name, VkMat& feat, VkCompute& cmd);
+
+    // set input by blob name
+    // return 0 if success
+    int input(const char* blob_name, const VkImageMat& in);
+
+    // get result by blob name
+    // return 0 if success
+    int extract(const char* blob_name, VkImageMat& feat, VkCompute& cmd);
+#endif // NCNN_STRING
+
+    // set input by blob index
+    // return 0 if success
+    int input(int blob_index, const VkMat& in);
+
+    // get result by blob index
+    // return 0 if success
+    int extract(int blob_index, VkMat& feat, VkCompute& cmd);
+
+    // set input by blob index
+    // return 0 if success
+    int input(int blob_index, const VkImageMat& in);
+
+    // get result by blob index
+    // return 0 if success
+    int extract(int blob_index, VkImageMat& feat, VkCompute& cmd);
+#endif // NCNN_VULKAN
 
 protected:
     friend Extractor Net::create_extractor() const;
-    Extractor(const Net* net, int blob_count);
+    Extractor(const Net* net, size_t blob_count);
 
 private:
-    const Net* net;
-    std::vector<Mat> blob_mats;
-    bool lightmode;
-    int num_threads;
+    ExtractorPrivate* const d;
 };
 
 } // namespace ncnn

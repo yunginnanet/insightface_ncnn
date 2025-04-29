@@ -1,7 +1,7 @@
 CXX = g++
-COMMON = `pkg-config --cflags opencv`
+COMMON = `pkg-config --cflags opencv4`
 LIB = ../ncnn/lib/libncnn.a
-LIB += `pkg-config --libs opencv`
+LIB += `pkg-config --libs opencv4`
 INCLUDE = -I../ncnn/include
 COMMON += -fopenmp -pthread -std=c++11
 DEPS = $(wildcard *.h)

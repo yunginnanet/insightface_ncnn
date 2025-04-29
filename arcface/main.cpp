@@ -33,13 +33,13 @@ int main(int argc, char* argv[])
         img2 = imread(argv[2]);
     }
     else{
-        img1 = imread("../image/gyy1.jpeg");
-        img2 = imread("../image/gyy2.jpeg");
+        img1 = imread("./image/gyy1.jpeg");
+        img2 = imread("./image/gyy2.jpeg");
     }
     ncnn::Mat ncnn_img1 = ncnn::Mat::from_pixels(img1.data, ncnn::Mat::PIXEL_BGR, img1.cols, img1.rows);
     ncnn::Mat ncnn_img2 = ncnn::Mat::from_pixels(img2.data, ncnn::Mat::PIXEL_BGR, img2.cols, img2.rows);
 
-    MtcnnDetector detector("../models");
+    MtcnnDetector detector("./models");
 
     double start = (double)getTickCount();
     vector<FaceInfo> results1 = detector.Detect(ncnn_img1);
@@ -72,7 +72,7 @@ int main(int argc, char* argv[])
     //    circle(img2, cv::Point(it->landmark[8], it->landmark[9]), 2, cv::Scalar(0, 255, 0), 2);
     //}
 
-    Arcface arc("../models");
+    Arcface arc("./models");
 
     start = (double)getTickCount();
     vector<float> feature1 = arc.getFeature(det1);
